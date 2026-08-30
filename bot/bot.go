@@ -22,23 +22,14 @@ const (
 type DiscordBot struct {
 	server    *http.Server
 	publicKey ed25519.PublicKey
-	router    *interactions.InteractionsRouter
+	router    interactions.InteractionsTypeRouter
 }
 
-func NewDiscordBot(pubKeyHex string) (*DiscordBot, error) {
+func NewDiscordBot(pubKeyHex string, router interactions.InteractionsTypeRouter) (*DiscordBot, error) {
 	pubKey, err := hex.DecodeString(pubKeyHex)
 	if err != nil || len(pubKey) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("invalid discord public key: %w", err)
 	}
-
-	commandRouter := interactions.NewCommandRouter() // a command is type of interaction
-	commandRouter.Subscribe("test", interactions.CommandTestHandler)
-	commandRouter.Subscribe("book", interactions.CommandBookHandler)
-
-	router := interactions.NewInteractionsRouter(map[interactions.InteractionType]interactions.InteractionsTypeRouter{
-		interactions.PingInteractionType:               interactions.NewPingRouter(),
-		interactions.ApplicationCommandInteractionType: commandRouter,
-	})
 
 	return &DiscordBot{
 		publicKey: pubKey,

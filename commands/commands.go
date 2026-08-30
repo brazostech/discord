@@ -16,6 +16,7 @@ var SimpleTestCommand = Command{
 	},
 }
 
+// BookCommand registers the /book command, used to manage book club books
 var BookCommand = Command{
 	Name:        "book",
 	Description: "Book Club management command",

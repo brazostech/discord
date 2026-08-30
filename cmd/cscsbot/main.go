@@ -9,6 +9,7 @@ import (
 	"os/signal"
 
 	"github.com/brazostech/discord/bot"
+	"github.com/brazostech/discord/interactions"
 )
 
 type config struct {
@@ -40,7 +41,18 @@ func start() error {
 		return err
 	}
 
-	b, err := bot.NewDiscordBot(config.discordPublicKey)
+	// ----- build subrouters -----
+	commandRouter := interactions.NewCommandRouter() // a command is type of interaction
+	commandRouter.Subscribe("test", interactions.CommandTestHandler)
+	commandRouter.Subscribe("book", interactions.CommandBookHandler)
+
+	// ----- builder top-level router -----
+	router := interactions.NewInteractionsRouter(map[interactions.InteractionType]interactions.InteractionsTypeRouter{
+		interactions.PingInteractionType:               interactions.NewPingRouter(),
+		interactions.ApplicationCommandInteractionType: commandRouter,
+	})
+
+	b, err := bot.NewDiscordBot(config.discordPublicKey, router)
 	if err != nil {
 		return err
 	}
