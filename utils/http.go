@@ -1,4 +1,4 @@
-package interactions
+package utils
 
 import (
 	"encoding/json"

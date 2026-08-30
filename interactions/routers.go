@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/brazostech/discord/commands"
+	"github.com/brazostech/discord/utils"
 )
 
 var ErrHandlerNotFound = errors.New("handler not found")
@@ -51,7 +52,7 @@ func NewPingRouter() *PingRouter {
 }
 
 func (router *PingRouter) Route(_ context.Context, w http.ResponseWriter, _ *http.Request, _ InteractionPacket) error {
-	return WriteJSON(w, http.StatusOK, InteractionResponse{Type: PongInteractionResponseType})
+	return utils.WriteJSON(w, http.StatusOK, InteractionResponse{Type: PongInteractionResponseType})
 }
 
 // ---------- Command Router ----------
@@ -89,7 +90,7 @@ func (router *CommandRouter) Route(ctx context.Context, w http.ResponseWriter, r
 		return fmt.Errorf("command handler %q: %w", data.Name, err)
 	}
 
-	return WriteJSON(w, http.StatusOK, res)
+	return utils.WriteJSON(w, http.StatusOK, res)
 }
 
 func (r *CommandRouter) Subscribe(name string, fn InteractionsHandler) {
