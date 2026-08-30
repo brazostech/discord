@@ -10,6 +10,7 @@ import (
 
 	"github.com/brazostech/discord/bot"
 	"github.com/brazostech/discord/interactions"
+	"github.com/brazostech/discord/book"
 )
 
 type config struct {
@@ -44,7 +45,7 @@ func start() error {
 	// ----- build subrouters -----
 	commandRouter := interactions.NewCommandRouter() // a command is type of interaction
 	commandRouter.Subscribe("test", interactions.CommandTestHandler)
-	commandRouter.Subscribe("book", interactions.CommandBookHandler)
+	commandRouter.Subscribe("book", book.CommandBookHandler)
 
 	// ----- builder top-level router -----
 	router := interactions.NewInteractionsRouter(map[interactions.InteractionType]interactions.InteractionsTypeRouter{

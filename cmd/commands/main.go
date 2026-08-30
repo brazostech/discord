@@ -12,6 +12,7 @@ import (
 
 	"github.com/brazostech/discord"
 	"github.com/brazostech/discord/commands"
+	"github.com/brazostech/discord/book"
 )
 
 const commandRequestTimeout = 5 * time.Second
@@ -46,7 +47,7 @@ func main() {
 
 	allCommands := []commands.Command{
 		commands.SimpleTestCommand,
-		commands.BookCommand,
+		book.BookCommand,
 	}
 
 	client := discord.NewAPIClient(config.discordToken)
