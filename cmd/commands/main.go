@@ -46,7 +46,7 @@ func main() {
 
 	allCommands := []discord.Command{
 		discord.SimpleTestCommand,
-		book.BookCommand,
+		book.Command,
 	}
 
 	client := discord.NewAPIClient(config.discordToken)

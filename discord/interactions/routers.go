@@ -78,28 +78,33 @@ func (router *CommandRouter) Route(ctx context.Context, w http.ResponseWriter, r
 		return fmt.Errorf("unmarshal application command data: %w", err)
 	}
 
-	fn, ok := router.subscriptions[data.Name]
+	path := data.Name
+	if subcommand, ok := data.Subcommand(); ok {
+		path += " " + subcommand
+	}
+
+	fn, ok := router.subscriptions[path]
 	if !ok {
-		return fmt.Errorf("%w: command %q", ErrHandlerNotFound, data.Name)
+		return fmt.Errorf("%w: command %q", ErrHandlerNotFound, path)
 	}
 
 	packet.Data = &data
 	res, err := fn(ctx, packet)
 	if err != nil {
-		http.Error(w, "failed to handle interaction", http.StatusInternalServerError)
-		return fmt.Errorf("command handler %q: %w", data.Name, err)
+		return fmt.Errorf("command handler %q: %w", path, err)
 	}
 
 	return utils.WriteJSON(w, http.StatusOK, res)
 }
 
-func (r *CommandRouter) Subscribe(name string, fn InteractionsHandler) {
-	if name == "" {
-		panic("interaction command name must not be empty")
+// Subscribe registers a handler for a command path, e.g. "book register".
+func (r *CommandRouter) Subscribe(path string, fn InteractionsHandler) {
+	if path == "" {
+		panic("interaction command path must not be empty")
 	}
 	if fn == nil {
 		panic("interaction handler must not be nil")
 	}
 
-	r.subscriptions[name] = fn
+	r.subscriptions[path] = fn
 }
