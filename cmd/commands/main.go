@@ -10,9 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/brazostech/discord"
-	"github.com/brazostech/discord/commands"
 	"github.com/brazostech/discord/book"
+	"github.com/brazostech/discord/discord"
 )
 
 const commandRequestTimeout = 5 * time.Second
@@ -45,8 +44,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	allCommands := []commands.Command{
-		commands.SimpleTestCommand,
+	allCommands := []discord.Command{
+		discord.SimpleTestCommand,
 		book.BookCommand,
 	}
 
@@ -60,7 +59,7 @@ func main() {
 	}
 }
 
-func installCommands(ctx context.Context, client *discord.APIClient, appID string, cmds []commands.Command) error {
+func installCommands(ctx context.Context, client *discord.APIClient, appID string, cmds []discord.Command) error {
 	endpoint := fmt.Sprintf("applications/%s/commands", appID)
 
 	resp, err := client.Request(ctx, endpoint, discord.RequestOptions{

@@ -1,4 +1,4 @@
-package commands
+package discord
 
 // SimpleTestCommand registers the most basic Ping/Pong interaction
 var SimpleTestCommand = Command{

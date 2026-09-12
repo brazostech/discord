@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/brazostech/discord/interactions"
+	"github.com/brazostech/discord/discord/interactions"
 )
 
 const (

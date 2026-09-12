@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/brazostech/discord/commands"
+	"github.com/brazostech/discord/discord"
 	"github.com/brazostech/discord/utils"
 )
 
@@ -25,7 +25,7 @@ type InteractionsRouter struct {
 
 type InteractionPacket struct {
 	Interaction Interaction
-	Data        *commands.ApplicationCommandData
+	Data        *discord.ApplicationCommandData
 }
 
 func NewInteractionsRouter(subscriptions map[InteractionType]InteractionsTypeRouter) *InteractionsRouter {
@@ -73,7 +73,7 @@ func (router *CommandRouter) Route(ctx context.Context, w http.ResponseWriter, r
 		return fmt.Errorf("interaction type %d does not contain application command data", i.Type)
 	}
 
-	var data commands.ApplicationCommandData
+	var data discord.ApplicationCommandData
 	if err := json.Unmarshal(i.Data, &data); err != nil {
 		return fmt.Errorf("unmarshal application command data: %w", err)
 	}

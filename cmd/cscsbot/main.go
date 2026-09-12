@@ -8,9 +8,9 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/brazostech/discord/bot"
-	"github.com/brazostech/discord/interactions"
 	"github.com/brazostech/discord/book"
+	"github.com/brazostech/discord/bot"
+	"github.com/brazostech/discord/discord/interactions"
 )
 
 type config struct {
@@ -42,10 +42,13 @@ func start() error {
 		return err
 	}
 
+	// ----- build services -----
+	bs := book.NewBookService(book.BookRepository{})
+
 	// ----- build subrouters -----
 	commandRouter := interactions.NewCommandRouter() // a command is type of interaction
 	commandRouter.Subscribe("test", interactions.CommandTestHandler)
-	commandRouter.Subscribe("book", book.CommandBookHandler)
+	commandRouter.Subscribe("book", bs.CommandBookHandler)
 
 	// ----- builder top-level router -----
 	router := interactions.NewInteractionsRouter(map[interactions.InteractionType]interactions.InteractionsTypeRouter{

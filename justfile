@@ -1,10 +1,11 @@
 build-bot:
   go build -o bin/bot ./cmd/cscsbot
 
-build-commands:
-  go build -o bin/commands ./cmd/commands
+start-local pubkey:
+  go run ./cmd/cscsbot -pubkey {{pubkey}} &
+  ngrok http 8080
 
-build: build-bot build-commands
+build: build-bot
 
 test:
   go test ./...

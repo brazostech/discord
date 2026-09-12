@@ -5,6 +5,6 @@ import (
 )
 
 type Repository[T any, ID comparable] interface {
-	Read(ctx context.Context, id string) (T, error)
+	Read(ctx context.Context, id ID) (T, error)
 	Write(ctx context.Context, entity T) error
 }
