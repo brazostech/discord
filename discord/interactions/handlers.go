@@ -5,7 +5,7 @@ import (
 )
 
 // CommandTestHandler handles the /test command as a Chat Input
-func CommandTestHandler(_ context.Context, _ InteractionPacket) (InteractionResponse, error) {
+func CommandTestHandler(_ context.Context, _ Invocation) (InteractionResponse, error) {
 	return InteractionResponse{
 		Type: ChannelMessageWithSourceInteractionResponseType,
 		Data: &InteractionResponseData{

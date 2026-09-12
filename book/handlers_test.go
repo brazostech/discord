@@ -13,12 +13,12 @@ func TestHandleRegisterStoresCurrentBook(t *testing.T) {
 	store := NewMemoryStore()
 	commands := NewCommands(NewService(store))
 
-	packet := commandPacket("server-1", "register",
+	invocation := commandInvocation("server-1",
 		stringValueOption("name", "Dune"),
 		stringValueOption("url", "https://example.com/dune"),
 	)
 
-	res, err := commands.HandleRegister(t.Context(), packet)
+	res, err := commands.HandleRegister(t.Context(), invocation)
 	if err != nil {
 		t.Fatalf("handle register: %v", err)
 	}
@@ -41,9 +41,9 @@ func TestHandleRegisterWithoutUrl(t *testing.T) {
 	store := NewMemoryStore()
 	commands := NewCommands(NewService(store))
 
-	packet := commandPacket("server-1", "register", stringValueOption("name", "Dune"))
+	invocation := commandInvocation("server-1", stringValueOption("name", "Dune"))
 
-	if _, err := commands.HandleRegister(t.Context(), packet); err != nil {
+	if _, err := commands.HandleRegister(t.Context(), invocation); err != nil {
 		t.Fatalf("handle register: %v", err)
 	}
 
@@ -60,9 +60,9 @@ func TestHandleRegisterRequiresName(t *testing.T) {
 	store := NewMemoryStore()
 	commands := NewCommands(NewService(store))
 
-	packet := commandPacket("server-1", "register")
+	invocation := commandInvocation("server-1")
 
-	res, err := commands.HandleRegister(t.Context(), packet)
+	res, err := commands.HandleRegister(t.Context(), invocation)
 	if err != nil {
 		t.Fatalf("handle register: %v", err)
 	}
@@ -84,9 +84,9 @@ func TestHandleUpdateChapterUpdatesCurrentBook(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	packet := commandPacket("server-1", "update-chapter", intValueOption("chapter", 7))
+	invocation := commandInvocation("server-1", intValueOption("chapter", 7))
 
-	res, err := commands.HandleUpdateChapter(t.Context(), packet)
+	res, err := commands.HandleUpdateChapter(t.Context(), invocation)
 	if err != nil {
 		t.Fatalf("handle update chapter: %v", err)
 	}
@@ -106,9 +106,9 @@ func TestHandleUpdateChapterUpdatesCurrentBook(t *testing.T) {
 func TestHandleUpdateChapterWithoutCurrentBook(t *testing.T) {
 	commands := NewCommands(NewService(NewMemoryStore()))
 
-	packet := commandPacket("server-1", "update-chapter", intValueOption("chapter", 3))
+	invocation := commandInvocation("server-1", intValueOption("chapter", 3))
 
-	res, err := commands.HandleUpdateChapter(t.Context(), packet)
+	res, err := commands.HandleUpdateChapter(t.Context(), invocation)
 	if err != nil {
 		t.Fatalf("handle update chapter: %v", err)
 	}
@@ -126,9 +126,9 @@ func TestHandleUpdateChapterRejectsNegative(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	packet := commandPacket("server-1", "update-chapter", intValueOption("chapter", -1))
+	invocation := commandInvocation("server-1", intValueOption("chapter", -1))
 
-	res, err := commands.HandleUpdateChapter(t.Context(), packet)
+	res, err := commands.HandleUpdateChapter(t.Context(), invocation)
 	if err != nil {
 		t.Fatalf("handle update chapter: %v", err)
 	}
@@ -145,35 +145,13 @@ func TestHandleUpdateChapterRejectsNegative(t *testing.T) {
 	}
 }
 
-func TestHandleFailsWithoutCommandData(t *testing.T) {
-	commands := NewCommands(NewService(NewMemoryStore()))
-
-	packet := interactions.InteractionPacket{}
-
-	if _, err := commands.HandleRegister(t.Context(), packet); err == nil {
-		t.Fatal("expected an error for a packet without command data")
-	}
-	if _, err := commands.HandleUpdateChapter(t.Context(), packet); err == nil {
-		t.Fatal("expected an error for a packet without command data")
-	}
-}
-
-func commandPacket(serverID, subcommand string, opts ...discord.InteractionOption) interactions.InteractionPacket {
-	return interactions.InteractionPacket{
+func commandInvocation(serverID string, opts ...discord.InteractionOption) interactions.Invocation {
+	return interactions.Invocation{
 		Interaction: interactions.Interaction{
 			Type:    interactions.ApplicationCommandInteractionType,
 			GuildID: serverID,
 		},
-		Data: &discord.ApplicationCommandData{
-			Name: Command.Name,
-			Options: []discord.InteractionOption{
-				{
-					Name:    subcommand,
-					Type:    discord.SubCommandOptionType,
-					Options: opts,
-				},
-			},
-		},
+		Options: opts,
 	}
 }
 

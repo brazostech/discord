@@ -91,3 +91,22 @@ func (c *APIClient) Request(ctx context.Context, endpoint string, options Reques
 
 	return c.do(req)
 }
+
+const maxErrorBodySize = 1 << 12
+
+// Execute sends the request and reports an error for any non-2xx response,
+// including the response body.
+func (c *APIClient) Execute(ctx context.Context, endpoint string, options RequestOptions) error {
+	resp, err := c.Request(ctx, endpoint, options)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodySize))
+		return fmt.Errorf("discord returned %s: %s", resp.Status, body)
+	}
+
+	return nil
+}
