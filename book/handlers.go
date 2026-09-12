@@ -19,16 +19,11 @@ func NewCommands(service *Service) *Commands {
 }
 
 // HandleRegister handles /book register.
-func (c *Commands) HandleRegister(ctx context.Context, packet interactions.InteractionPacket) (interactions.InteractionResponse, error) {
-	opts, err := subcommandOptions(packet)
-	if err != nil {
-		return interactions.InteractionResponse{}, err
-	}
+func (c *Commands) HandleRegister(ctx context.Context, invocation interactions.Invocation) (interactions.InteractionResponse, error) {
+	name, _ := stringOption(invocation.Options, "name")
+	url, _ := stringOption(invocation.Options, "url")
 
-	name, _ := stringOption(opts, "name")
-	url, _ := stringOption(opts, "url")
-
-	registered, err := c.service.Register(ctx, packet.Interaction.GuildID, name, url)
+	registered, err := c.service.Register(ctx, invocation.Interaction.GuildID, name, url)
 	switch {
 	case errors.Is(err, ErrNameRequired):
 		return message("A book name is required."), nil
@@ -40,18 +35,13 @@ func (c *Commands) HandleRegister(ctx context.Context, packet interactions.Inter
 }
 
 // HandleUpdateChapter handles /book update-chapter.
-func (c *Commands) HandleUpdateChapter(ctx context.Context, packet interactions.InteractionPacket) (interactions.InteractionResponse, error) {
-	opts, err := subcommandOptions(packet)
-	if err != nil {
-		return interactions.InteractionResponse{}, err
-	}
-
-	chapter, ok := intOption(opts, "chapter")
+func (c *Commands) HandleUpdateChapter(ctx context.Context, invocation interactions.Invocation) (interactions.InteractionResponse, error) {
+	chapter, ok := intOption(invocation.Options, "chapter")
 	if !ok {
 		return interactions.InteractionResponse{}, errors.New("chapter option is missing or not an integer")
 	}
 
-	updated, err := c.service.UpdateChapter(ctx, packet.Interaction.GuildID, chapter)
+	updated, err := c.service.UpdateChapter(ctx, invocation.Interaction.GuildID, chapter)
 	switch {
 	case errors.Is(err, ErrNoCurrentBook):
 		return message("No book registered yet — use `/book register`."), nil
@@ -62,14 +52,6 @@ func (c *Commands) HandleUpdateChapter(ctx context.Context, packet interactions.
 	}
 
 	return message(fmt.Sprintf("**%s** is now on chapter %d.", updated.Name, updated.Chapter)), nil
-}
-
-func subcommandOptions(packet interactions.InteractionPacket) ([]discord.InteractionOption, error) {
-	if packet.Data == nil {
-		return nil, errors.New("missing application command data")
-	}
-
-	return packet.Data.SubcommandOptions(), nil
 }
 
 func message(content string) interactions.InteractionResponse {

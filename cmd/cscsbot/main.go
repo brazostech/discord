@@ -9,22 +9,23 @@ import (
 	"os/signal"
 
 	"github.com/brazostech/discord/book"
-	"github.com/brazostech/discord/bot"
+	"github.com/brazostech/discord/discord"
+	"github.com/brazostech/discord/discord/gateway"
 	"github.com/brazostech/discord/discord/interactions"
 )
 
 type config struct {
-	discordPublicKey string
+	discordToken string
 }
 
 func parseConfig() (*config, error) {
 	c := &config{}
 
-	flag.StringVar(&c.discordPublicKey, "pubkey", "", "discord application public key")
+	flag.StringVar(&c.discordToken, "token", "", "discord bot token")
 	flag.Parse()
 
-	if c.discordPublicKey == "" {
-		return nil, errors.New("discord public key is required")
+	if c.discordToken == "" {
+		return nil, errors.New("discord token is required")
 	}
 
 	return c, nil
@@ -47,27 +48,20 @@ func start() error {
 	service := book.NewService(store)
 	commands := book.NewCommands(service)
 
-	// ----- build subrouters -----
-	commandRouter := interactions.NewCommandRouter() // a command is type of interaction
-	commandRouter.Subscribe("test", interactions.CommandTestHandler)
-	commandRouter.Subscribe("book register", commands.HandleRegister)
-	commandRouter.Subscribe("book update-chapter", commands.HandleUpdateChapter)
+	// ----- build inbound dispatch -----
+	dispatcher := interactions.NewDispatcher()
+	dispatcher.Subscribe("test", interactions.CommandTestHandler)
+	dispatcher.Subscribe("book register", commands.HandleRegister)
+	dispatcher.Subscribe("book update-chapter", commands.HandleUpdateChapter)
 
-	// ----- builder top-level router -----
-	router := interactions.NewInteractionsRouter(map[interactions.InteractionType]interactions.InteractionsTypeRouter{
-		interactions.PingInteractionType:               interactions.NewPingRouter(),
-		interactions.ApplicationCommandInteractionType: commandRouter,
-	})
-
-	b, err := bot.NewDiscordBot(config.discordPublicKey, router)
-	if err != nil {
-		return err
-	}
+	// ----- build gateway transport -----
+	api := discord.NewAPIClient(config.discordToken)
+	client := gateway.NewClient(config.discordToken, dispatcher, gateway.NewCallback(api))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	if err := b.Start(ctx); err != nil {
+	if err := client.Run(ctx); err != nil {
 		return err
 	}
 
