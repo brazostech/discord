@@ -22,6 +22,11 @@ type Invocation struct {
 	Options     []discord.InteractionOption
 }
 
+// ServerID returns the ID of the server the invocation came from.
+func (i Invocation) ServerID() string {
+	return i.Interaction.GuildID
+}
+
 // Dispatcher resolves inbound interactions to responses. Register command
 // handlers with Subscribe; unregistered commands and unsupported interaction
 // types return ErrHandlerNotFound.

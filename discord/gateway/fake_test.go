@@ -17,6 +17,7 @@ const testWaitTimeout = 2 * time.Second
 type fakeConn struct {
 	inbound   chan []byte
 	writes    chan []byte
+	failure   chan error
 	closed    chan struct{}
 	closeOnce sync.Once
 	closeCode atomic.Int64
@@ -26,6 +27,7 @@ func newFakeConn() *fakeConn {
 	return &fakeConn{
 		inbound: make(chan []byte, 16),
 		writes:  make(chan []byte, 16),
+		failure: make(chan error, 1),
 		closed:  make(chan struct{}),
 	}
 }
@@ -34,6 +36,8 @@ func (f *fakeConn) Read(ctx context.Context) ([]byte, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case err := <-f.failure:
+		return nil, err
 	case <-f.closed:
 		return nil, net.ErrClosed
 	case message := <-f.inbound:
@@ -56,6 +60,10 @@ func (f *fakeConn) Close(code int, _ string) error {
 	f.closeCode.Store(int64(code))
 	f.closeOnce.Do(func() { close(f.closed) })
 	return nil
+}
+
+func (f *fakeConn) fail(err error) {
+	f.failure <- err
 }
 
 func (f *fakeConn) send(t *testing.T, payload any) {
@@ -131,26 +139,26 @@ func (d *fakeDialer) count() int {
 	return len(d.conns)
 }
 
-type interactionResponse struct {
+type capturedResponse struct {
 	interaction interactions.Interaction
 	response    interactions.InteractionResponse
 }
 
 type fakeResponder struct {
-	responses chan interactionResponse
+	responses chan capturedResponse
 }
 
 func newFakeResponder() *fakeResponder {
-	return &fakeResponder{responses: make(chan interactionResponse, 16)}
+	return &fakeResponder{responses: make(chan capturedResponse, 16)}
 }
 
 func (f *fakeResponder) Respond(_ context.Context, interaction interactions.Interaction, response interactions.InteractionResponse) error {
-	f.responses <- interactionResponse{interaction: interaction, response: response}
+	f.responses <- capturedResponse{interaction: interaction, response: response}
 
 	return nil
 }
 
-func (f *fakeResponder) next(t *testing.T) interactionResponse {
+func (f *fakeResponder) next(t *testing.T) capturedResponse {
 	t.Helper()
 
 	select {
@@ -158,7 +166,7 @@ func (f *fakeResponder) next(t *testing.T) interactionResponse {
 		return response
 	case <-time.After(testWaitTimeout):
 		t.Fatal("timed out waiting for an interaction response")
-		return interactionResponse{}
+		return capturedResponse{}
 	}
 }
 
@@ -180,28 +188,45 @@ func newTestClient(t *testing.T) (*Client, *fakeDialer, *fakeResponder) {
 	return client, dialer, responder
 }
 
-func runClient(t *testing.T, client *Client) {
+func startClient(t *testing.T, client *Client) (context.CancelFunc, <-chan error) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	done := make(chan error, 1)
 
-	go func() {
-		defer close(done)
-		if err := client.Run(ctx); err != nil {
-			t.Errorf("run client: %v", err)
-		}
-	}()
+	go func() { done <- client.Run(ctx) }()
 
+	return cancel, done
+}
+
+func runClient(t *testing.T, client *Client) {
+	t.Helper()
+
+	cancel, done := startClient(t, client)
 	t.Cleanup(func() {
 		cancel()
 
 		select {
-		case <-done:
+		case err := <-done:
+			if err != nil {
+				t.Errorf("run client: %v", err)
+			}
 		case <-time.After(testWaitTimeout):
 			t.Error("client did not stop after cancellation")
 		}
 	})
+}
+
+func assertReidentifies(t *testing.T, dialer *fakeDialer) {
+	t.Helper()
+
+	second := dialer.connection(t, 1)
+	second.send(t, helloEvent(45000))
+
+	identify := second.nextWrite(t)
+	if identify["op"] != float64(opIdentify) {
+		t.Fatalf("op = %v, want identify on the new connection", identify["op"])
+	}
 }
 
 func helloEvent(intervalMS int) map[string]any {

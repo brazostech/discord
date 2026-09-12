@@ -23,7 +23,7 @@ func (c *Commands) HandleRegister(ctx context.Context, invocation interactions.I
 	name, _ := stringOption(invocation.Options, "name")
 	url, _ := stringOption(invocation.Options, "url")
 
-	registered, err := c.service.Register(ctx, invocation.Interaction.GuildID, name, url)
+	registered, err := c.service.Register(ctx, invocation.ServerID(), name, url)
 	switch {
 	case errors.Is(err, ErrNameRequired):
 		return message("A book name is required."), nil
@@ -41,7 +41,7 @@ func (c *Commands) HandleUpdateChapter(ctx context.Context, invocation interacti
 		return interactions.InteractionResponse{}, errors.New("chapter option is missing or not an integer")
 	}
 
-	updated, err := c.service.UpdateChapter(ctx, invocation.Interaction.GuildID, chapter)
+	updated, err := c.service.UpdateChapter(ctx, invocation.ServerID(), chapter)
 	switch {
 	case errors.Is(err, ErrNoCurrentBook):
 		return message("No book registered yet — use `/book register`."), nil

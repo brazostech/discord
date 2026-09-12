@@ -69,11 +69,19 @@ func NewClient(token string, dispatcher Dispatcher, responder Responder) *Client
 }
 
 // Run keeps a gateway session alive until ctx is done, reconnecting after
-// closes, reconnect requests, and invalid sessions.
+// closes, reconnect requests, and invalid sessions. Close codes Discord marks
+// as non-reconnectable end the run.
 func (c *Client) Run(ctx context.Context) error {
 	for {
-		if err := c.runSession(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("discord gateway: %v", err)
+		err := c.runSession(ctx)
+		if err != nil {
+			var closed *closeError
+			if errors.As(err, &closed) && !reconnectable(closed.Code) {
+				return fmt.Errorf("gateway session: %w", err)
+			}
+			if !errors.Is(err, context.Canceled) {
+				log.Printf("discord gateway: %v", err)
+			}
 		}
 
 		select {
@@ -84,24 +92,40 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
+// session is one gateway connection: the socket, its read stream, the context
+// that ends with the connection, and the long-lived context callbacks use.
+type session struct {
+	conn        conn
+	stream      *stream
+	ctx         context.Context
+	dispatchCtx context.Context
+	interval    time.Duration
+}
+
 func (c *Client) runSession(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
+	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := c.dialer.dial(ctx, c.gatewayURL)
+	conn, err := c.dialer.dial(sessionCtx, c.gatewayURL)
 	if err != nil {
 		return fmt.Errorf("dial gateway: %w", err)
 	}
 	defer conn.Close(reconnectCloseCode, "reconnecting")
 
-	incoming, readErrors := readMessages(ctx, conn)
+	s := &session{
+		conn:        conn,
+		stream:      newStream(sessionCtx, conn),
+		ctx:         sessionCtx,
+		dispatchCtx: ctx,
+	}
 
-	interval, err := c.awaitHello(ctx, incoming, readErrors)
+	interval, err := c.awaitHello(s)
 	if err != nil {
 		return err
 	}
+	s.interval = interval
 
-	if err := c.send(ctx, conn, outbound{
+	if err := c.send(sessionCtx, conn, outbound{
 		Op: opIdentify,
 		Data: identifyData{
 			Token:   c.token,
@@ -116,40 +140,34 @@ func (c *Client) runSession(ctx context.Context) error {
 		return fmt.Errorf("identify: %w", err)
 	}
 
-	return c.serve(ctx, conn, incoming, readErrors, interval)
+	return c.serve(s)
 }
 
-func (c *Client) serve(
-	ctx context.Context,
-	conn conn,
-	incoming <-chan []byte,
-	readErrors <-chan error,
-	interval time.Duration,
-) error {
+func (c *Client) serve(s *session) error {
 	var (
 		sequence      *int64
 		heartbeatSent bool
 	)
 
-	timer := time.NewTimer(c.heartbeatDelay(interval))
+	timer := time.NewTimer(c.heartbeatDelay(s.interval))
 	defer timer.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-readErrors:
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case err := <-s.stream.errors:
 			return fmt.Errorf("read gateway: %w", err)
 		case <-timer.C:
 			if heartbeatSent {
 				return errHeartbeatUnacked
 			}
-			if err := c.sendHeartbeat(ctx, conn, sequence); err != nil {
+			if err := c.sendHeartbeat(s.ctx, s.conn, sequence); err != nil {
 				return err
 			}
 			heartbeatSent = true
-			timer.Reset(interval)
-		case data := <-incoming:
+			timer.Reset(s.interval)
+		case data := <-s.stream.messages:
 			p, err := decodePayload(data)
 			if err != nil {
 				log.Printf("discord gateway: %v", err)
@@ -162,53 +180,76 @@ func (c *Client) serve(
 					sequence = p.Sequence
 				}
 				if p.Type == "INTERACTION_CREATE" {
-					go c.handleInteraction(ctx, p.Data)
+					go c.handleInteraction(s.dispatchCtx, p.Data)
 				}
 			case opHeartbeat:
-				if err := c.sendHeartbeat(ctx, conn, sequence); err != nil {
+				if err := c.sendHeartbeat(s.ctx, s.conn, sequence); err != nil {
 					return err
 				}
 			case opHeartbeatAck:
 				heartbeatSent = false
-			case opReconnect:
-				return errReconnect
-			case opInvalidSession:
-				return errInvalidSession
+			default:
+				if err := sessionEnd(p.Op); err != nil {
+					return err
+				}
 			}
 		}
 	}
 }
 
-func (c *Client) awaitHello(ctx context.Context, incoming <-chan []byte, readErrors <-chan error) (time.Duration, error) {
+func (c *Client) awaitHello(s *session) (time.Duration, error) {
 	for {
 		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		case err := <-readErrors:
+		case <-s.ctx.Done():
+			return 0, s.ctx.Err()
+		case err := <-s.stream.errors:
 			return 0, fmt.Errorf("read gateway: %w", err)
-		case data := <-incoming:
+		case data := <-s.stream.messages:
 			p, err := decodePayload(data)
 			if err != nil {
 				return 0, err
 			}
-
-			switch p.Op {
-			case opHello:
-				var hello helloData
-				if err := json.Unmarshal(p.Data, &hello); err != nil {
-					return 0, fmt.Errorf("decode hello: %w", err)
-				}
-				if hello.HeartbeatInterval <= 0 {
-					return 0, fmt.Errorf("hello: invalid heartbeat interval %d", hello.HeartbeatInterval)
-				}
-
-				return time.Duration(hello.HeartbeatInterval) * time.Millisecond, nil
-			case opReconnect:
-				return 0, errReconnect
-			case opInvalidSession:
-				return 0, errInvalidSession
+			if err := sessionEnd(p.Op); err != nil {
+				return 0, err
 			}
+			if p.Op != opHello {
+				continue
+			}
+
+			var hello helloData
+			if err := json.Unmarshal(p.Data, &hello); err != nil {
+				return 0, fmt.Errorf("decode hello: %w", err)
+			}
+			if hello.HeartbeatInterval <= 0 {
+				return 0, fmt.Errorf("hello: invalid heartbeat interval %d", hello.HeartbeatInterval)
+			}
+
+			return time.Duration(hello.HeartbeatInterval) * time.Millisecond, nil
 		}
+	}
+}
+
+// sessionEnd maps the ops that end a session to their sentinel errors, whether
+// they arrive while waiting for Hello or mid-session.
+func sessionEnd(op int) error {
+	switch op {
+	case opReconnect:
+		return errReconnect
+	case opInvalidSession:
+		return errInvalidSession
+	default:
+		return nil
+	}
+}
+
+// reconnectable reports whether Discord expects clients to reconnect after a
+// close code. A bad token or invalid identify must not loop forever.
+func reconnectable(code int) bool {
+	switch code {
+	case 4004, 4010, 4011, 4012, 4013, 4014:
+		return false
+	default:
+		return true
 	}
 }
 
@@ -233,84 +274,6 @@ func (c *Client) send(ctx context.Context, conn conn, payload outbound) error {
 	return nil
 }
 
-func (c *Client) handleInteraction(ctx context.Context, data json.RawMessage) {
-	var interaction interactions.Interaction
-	if err := json.Unmarshal(data, &interaction); err != nil {
-		log.Printf("discord gateway: decode interaction: %v", err)
-		return
-	}
-
-	response, err := c.dispatcher.Handle(ctx, interaction)
-	if err != nil {
-		log.Printf("discord gateway: handle interaction %s: %v", interaction.ID, err)
-		return
-	}
-
-	if err := c.responder.Respond(ctx, interaction, response); err != nil {
-		log.Printf("discord gateway: respond to interaction %s: %v", interaction.ID, err)
-	}
-}
-
 func (c *Client) heartbeatDelay(interval time.Duration) time.Duration {
 	return time.Duration(float64(interval) * c.jitter())
-}
-
-func readMessages(ctx context.Context, conn conn) (<-chan []byte, <-chan error) {
-	messages := make(chan []byte)
-	errs := make(chan error, 1)
-
-	go func() {
-		for {
-			data, err := conn.Read(ctx)
-			if err != nil {
-				errs <- err
-				return
-			}
-
-			select {
-			case messages <- data:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return messages, errs
-}
-
-type payload struct {
-	Op       int             `json:"op"`
-	Data     json.RawMessage `json:"d"`
-	Sequence *int64          `json:"s"`
-	Type     string          `json:"t"`
-}
-
-func decodePayload(data []byte) (payload, error) {
-	var p payload
-	if err := json.Unmarshal(data, &p); err != nil {
-		return payload{}, fmt.Errorf("decode gateway payload: %w", err)
-	}
-
-	return p, nil
-}
-
-type outbound struct {
-	Op   int `json:"op"`
-	Data any `json:"d"`
-}
-
-type helloData struct {
-	HeartbeatInterval int `json:"heartbeat_interval"`
-}
-
-type identifyData struct {
-	Token      string             `json:"token"`
-	Intents    int                `json:"intents"`
-	Properties identifyProperties `json:"properties"`
-}
-
-type identifyProperties struct {
-	OS      string `json:"os"`
-	Browser string `json:"browser"`
-	Device  string `json:"device"`
 }

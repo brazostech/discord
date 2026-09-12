@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/coder/websocket"
 )
@@ -14,6 +15,16 @@ type conn interface {
 
 type dialer interface {
 	dial(ctx context.Context, url string) (conn, error)
+}
+
+// closeError reports the Discord gateway close code that ended a connection.
+type closeError struct {
+	Code   int
+	Reason string
+}
+
+func (e *closeError) Error() string {
+	return fmt.Sprintf("gateway closed with code %d: %s", e.Code, e.Reason)
 }
 
 type websocketDialer struct{}
@@ -33,7 +44,15 @@ type websocketConn struct {
 
 func (c websocketConn) Read(ctx context.Context) ([]byte, error) {
 	_, data, err := c.conn.Read(ctx)
-	return data, err
+	if err != nil {
+		if code := websocket.CloseStatus(err); code != -1 {
+			return nil, &closeError{Code: int(code), Reason: err.Error()}
+		}
+
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func (c websocketConn) Write(ctx context.Context, data []byte) error {

@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,7 +67,7 @@ func TestClientDispatchesGatewayInteractions(t *testing.T) {
 		"data":     map[string]any{"id": "100", "name": "test", "type": 1},
 	}))
 
-	assertContent := func(response interactionResponse, id, content string) {
+	assertContent := func(response capturedResponse, id, content string) {
 		t.Helper()
 
 		if response.interaction.ID != id {
@@ -214,13 +216,7 @@ func TestClientReconnectsWhenConnectionCloses(t *testing.T) {
 
 	conn.Close(1000, "closed by discord")
 
-	second := dialer.connection(t, 1)
-	second.send(t, helloEvent(45000))
-
-	identify := second.nextWrite(t)
-	if identify["op"] != float64(opIdentify) {
-		t.Fatalf("op = %v, want identify on the new connection", identify["op"])
-	}
+	assertReidentifies(t, dialer)
 }
 
 func TestClientReconnectsOnInvalidSession(t *testing.T) {
@@ -233,13 +229,7 @@ func TestClientReconnectsOnInvalidSession(t *testing.T) {
 
 	conn.send(t, map[string]any{"op": opInvalidSession, "d": false})
 
-	second := dialer.connection(t, 1)
-	second.send(t, helloEvent(45000))
-
-	identify := second.nextWrite(t)
-	if identify["op"] != float64(opIdentify) {
-		t.Fatalf("op = %v, want identify on the new connection", identify["op"])
-	}
+	assertReidentifies(t, dialer)
 }
 
 func TestClientReconnectsOnReconnectOpcode(t *testing.T) {
@@ -252,11 +242,84 @@ func TestClientReconnectsOnReconnectOpcode(t *testing.T) {
 
 	conn.send(t, map[string]any{"op": opReconnect, "d": nil})
 
-	second := dialer.connection(t, 1)
-	second.send(t, helloEvent(45000))
+	assertReidentifies(t, dialer)
+}
 
-	identify := second.nextWrite(t)
-	if identify["op"] != float64(opIdentify) {
-		t.Fatalf("op = %v, want identify on the new connection", identify["op"])
+func TestClientStopsReconnectingOnFatalCloseCode(t *testing.T) {
+	client, dialer, _ := newTestClient(t)
+	_, done := startClient(t, client)
+
+	conn := dialer.connection(t, 0)
+	conn.send(t, helloEvent(45000))
+	conn.nextWrite(t) // identify
+
+	conn.fail(&closeError{Code: 4004, Reason: "Authentication failed."})
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "4004") {
+			t.Fatalf("run error = %v, want the fatal close code", err)
+		}
+	case <-time.After(testWaitTimeout):
+		t.Fatal("client kept reconnecting after a fatal close code")
 	}
+
+	if count := dialer.count(); count != 1 {
+		t.Fatalf("dialer opened %d connections, want 1", count)
+	}
+}
+
+func TestClientFinishesCallbacksAcrossReconnects(t *testing.T) {
+	dispatcher := interactions.NewDispatcher()
+	dispatcher.Subscribe("test", interactions.CommandTestHandler)
+
+	dialer := &fakeDialer{}
+	responder := &blockingResponder{
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+		finished: make(chan error, 1),
+	}
+
+	client := NewClient("test-token", dispatcher, responder)
+	client.gatewayURL = "wss://gateway.test"
+	client.dialer = dialer
+	client.reconnectDelay = 0
+	client.jitter = func() float64 { return 1 }
+
+	runClient(t, client)
+
+	conn := dialer.connection(t, 0)
+	conn.send(t, helloEvent(45000))
+	conn.nextWrite(t) // identify
+
+	conn.send(t, dispatchEvent(1, "INTERACTION_CREATE", map[string]any{
+		"id": "1", "token": "token-1", "type": interactions.ApplicationCommandInteractionType,
+		"guild_id": "server-1",
+		"data":     map[string]any{"id": "100", "name": "test", "type": 1},
+	}))
+
+	<-responder.entered
+	conn.Close(1000, "reconnecting")
+
+	dialer.connection(t, 1) // the reconnect must not abort the callback
+
+	close(responder.release)
+
+	if err := <-responder.finished; err != nil {
+		t.Fatalf("callback aborted across reconnect: %v", err)
+	}
+}
+
+type blockingResponder struct {
+	entered  chan struct{}
+	release  chan struct{}
+	finished chan error
+}
+
+func (b *blockingResponder) Respond(ctx context.Context, _ interactions.Interaction, _ interactions.InteractionResponse) error {
+	b.entered <- struct{}{}
+	<-b.release
+	b.finished <- ctx.Err()
+
+	return nil
 }

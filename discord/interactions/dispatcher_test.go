@@ -94,3 +94,25 @@ func TestDispatcherUnsupportedInteractionType(t *testing.T) {
 		t.Fatalf("error = %v, want %v", err, ErrHandlerNotFound)
 	}
 }
+
+func TestDispatcherRejectsMalformedCommandData(t *testing.T) {
+	dispatcher := NewDispatcher()
+	dispatcher.Subscribe("test", CommandTestHandler)
+
+	cases := map[string]json.RawMessage{
+		"missing data": nil,
+		"invalid json": json.RawMessage(`{"name":`),
+	}
+
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := dispatcher.Handle(t.Context(), Interaction{
+				Type: ApplicationCommandInteractionType,
+				Data: data,
+			})
+			if err == nil {
+				t.Fatal("expected an error for malformed command data")
+			}
+		})
+	}
+}
