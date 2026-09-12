@@ -43,12 +43,15 @@ func start() error {
 	}
 
 	// ----- build services -----
-	bs := book.NewBookService(book.BookRepository{})
+	store := book.NewMemoryStore()
+	service := book.NewService(store)
+	commands := book.NewCommands(service)
 
 	// ----- build subrouters -----
 	commandRouter := interactions.NewCommandRouter() // a command is type of interaction
 	commandRouter.Subscribe("test", interactions.CommandTestHandler)
-	commandRouter.Subscribe("book", bs.CommandBookHandler)
+	commandRouter.Subscribe("book register", commands.HandleRegister)
+	commandRouter.Subscribe("book update-chapter", commands.HandleUpdateChapter)
 
 	// ----- builder top-level router -----
 	router := interactions.NewInteractionsRouter(map[interactions.InteractionType]interactions.InteractionsTypeRouter{

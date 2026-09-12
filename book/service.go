@@ -2,41 +2,49 @@ package book
 
 import (
 	"context"
-	"github.com/brazostech/discord/discord/interactions"
-	"github.com/brazostech/discord/ports"
+	"fmt"
 )
 
-type BookService struct {
-	repository ports.Repository[Book, string]
+type Service struct {
+	store Store
 }
 
-func NewBookService(repository ports.Repository[Book, string]) *BookService {
-	bs := BookService{
-		repository: repository,
-	}
-
-	return &bs
+func NewService(store Store) *Service {
+	return &Service{store: store}
 }
 
-// CommandBookHandler handles the /book command as a Chat Input
-// TODO:
-//   - use context
-//   - test the thing
-func (bs *BookService) CommandBookHandler(ctx context.Context, _ interactions.InteractionPacket) (interactions.InteractionResponse, error) {
-	select {
-	case <-ctx.Done():
-		return interactions.InteractionResponse{
-			Type: interactions.ChannelMessageWithSourceInteractionResponseType,
-			Data: &interactions.InteractionResponseData{
-				Content: "book test failed",
-			},
-		}, ctx.Err()
-	default:
+// Register sets or replaces the server's Current Book, starting at chapter 0.
+func (s *Service) Register(ctx context.Context, serverID, name, url string) (Book, error) {
+	if name == "" {
+		return Book{}, ErrNameRequired
 	}
-	return interactions.InteractionResponse{
-		Type: interactions.ChannelMessageWithSourceInteractionResponseType,
-		Data: &interactions.InteractionResponseData{
-			Content: "book test succeeded",
-		},
-	}, nil
+
+	book := Book{Name: name, Url: url}
+
+	if err := s.store.SaveCurrentBook(ctx, serverID, book); err != nil {
+		return Book{}, fmt.Errorf("save current book: %w", err)
+	}
+
+	return book, nil
+}
+
+// UpdateChapter changes the Current Book's chapter; it fails with
+// ErrNoCurrentBook when the server has no Current Book.
+func (s *Service) UpdateChapter(ctx context.Context, serverID string, chapter int) (Book, error) {
+	if chapter < 0 {
+		return Book{}, ErrNegativeChapter
+	}
+
+	book, err := s.store.CurrentBook(ctx, serverID)
+	if err != nil {
+		return Book{}, err
+	}
+
+	book.Chapter = chapter
+
+	if err := s.store.SaveCurrentBook(ctx, serverID, book); err != nil {
+		return Book{}, fmt.Errorf("save current book: %w", err)
+	}
+
+	return book, nil
 }
