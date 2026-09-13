@@ -5,7 +5,7 @@
 [![Lint](https://github.com/brazostech/discord/actions/workflows/lint.yml/badge.svg)](https://github.com/brazostech/discord/actions/workflows/lint.yml)
 [![Release](https://github.com/brazostech/discord/actions/workflows/release.yml/badge.svg)](https://github.com/brazostech/discord/actions/workflows/release.yml)
 
-A Discord bot for a book club that reads one book at a time. Every server tracks a single **Current Book** and the **Chapter** the club is on. The domain model lives in [CONTEXT.md](CONTEXT.md).
+A Discord bot for the College Station Computer Science discord. The domain model lives in [CONTEXT.md](CONTEXT.md).
 
 ## Commands
 
