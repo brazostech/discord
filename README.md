@@ -1,4 +1,4 @@
-# Book Club
+# CSCS Discord Bot
 
 [![Latest release](https://img.shields.io/github/v/release/brazostech/discord)](https://github.com/brazostech/discord/releases)
 [![Go version](https://img.shields.io/github/go-mod/go-version/brazostech/discord)](go.mod)
